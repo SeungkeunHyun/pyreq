@@ -26,18 +26,24 @@ class cURLParser(object):
 class cURLParser_Podbbang(cURLParser):
     def __init__(self, req, logger):
         super().__init__(req, logger)
+        self.page_count = 8
         pass
 
     def fetchEpisodes(self, cid, offset):
-        requri = (
-            "https://www.podbbang.com/_m_api/podcasts/%s/episodes?offset=%d&sort=pubdate:desc&limit=30&cache=0"
-            % (cid, offset)
-        )
-        self.logger.info("Podbbang uri: %s" % requri)
-        return requests.get(
-            "https://phpfetch.herokuapp.com/fetchURL.php?uri=%s" % urllib.parse.quote(requri),
-            headers=self.uheader,
-        )
+        try:
+            requri = (
+                "https://www.podbbang.com/_m_api/podcasts/%s/episodes?offset=%d&sort=pubdate:desc&limit=%d"
+                % (cid, offset, self.page_count)
+            )
+            self.logger.info("Podbbang uri: %s" % requri)
+            response = requests.get(
+                "https://phpfetch.herokuapp.com/fetchURL.php?uri=%s" % urllib.parse.quote(requri),
+                headers=self.uheader,
+            )
+            return json.loads(response.content)
+        except Exception as err:
+            self.logger.error(err)
+            return {"data": []}
 
     def get(self):
         pdoc = {}
@@ -57,14 +63,13 @@ class cURLParser_Podbbang(cURLParser):
         # self.logger.info("response of podbbang main: %s" % response.content)
         offset = 0
         total = 0
-        response = self.fetchEpisodes(cid, offset)
+        episodes = self.fetchEpisodes(cid, offset)
         # self.logger.info(response.content)
         # dom = html.fromstring(response.content)
-        episodes = json.loads(response.content)
         total = episodes["summary"]["total_count"]
         pdoc["episodes"] = []
-        while total > offset:
-            self.logger.info("episodes: %s" % episodes)
+        while total > len(pdoc["episodes"]):
+            self.logger.info("loaded episodes: %d" % len(episodes["data"]))
             for ep in episodes["data"]:
                 episode = {}
                 episode["title"] = ep["title"]
@@ -72,9 +77,11 @@ class cURLParser_Podbbang(cURLParser):
                 episode["mediaURI"] = ep["enclosure"]["url"]
                 episode["description"] = ep["description"]
                 pdoc["episodes"].append(episode)
-            offset += len(episodes["data"])
-            self.logger.info("total vs offset: %d vs %d" % (total, offset))
-            self.fetchEpisodes(cid, offset)
+            offset += len(episodes["data"]) / self.page_count
+            self.logger.info("total vs collected: %d vs %d" % (total, len(pdoc["episodes"])))
+            episodes = self.fetchEpisodes(cid, offset)
+            if len(episodes["data"]) == 0:
+                break
         return pdoc
 
 

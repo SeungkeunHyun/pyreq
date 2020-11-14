@@ -17,6 +17,7 @@ class cURLParser(object):
         }
         self.logger = logger
         self.req = req
+        self.requri = req.args.get("uri")
         pass
 
     def run(self):
@@ -47,10 +48,9 @@ class cURLParser_Podbbang(cURLParser):
 
     def get(self):
         pdoc = {}
-        uri = self.req.args.get("uri")
-        cid = re.match(r".+\/(\d+)$", uri).group(1)
+        cid = re.match(r".+\/(\d+)$", self.requri).group(1)
         response = requests.get(
-            "https://phpfetch.herokuapp.com/fetchURL.php?uri=%s" % urllib.parse.quote(uri),
+            "https://phpfetch.herokuapp.com/fetchURL.php?uri=%s" % urllib.parse.quote(self.requri),
             headers=self.uheader,
         )
         dom = html.fromstring(response.content)
@@ -106,7 +106,7 @@ class cURLParser_iTunes(cURLParser):
         }
 
     def get(self):
-        response = requests.get(self.req.args.get("uri"))
+        response = requests.get(self.requri)
         dom = etree.XML(response.content)
         pdoc = {}
         for k, v in self.itunes_map.items():
@@ -147,12 +147,31 @@ class cURLParser_iTunes(cURLParser):
         return pdoc
 
 
+class cURLParser_Podty(cURLParser_iTunes):
+    def __init__(self, req, logger):
+        super().__init__(req, logger)
+        try:
+            cnt = str(requests.get(self.requri).content, encoding="utf-8")
+            self.requri = re.search(
+                r"window\.clipboardData\.setData\('.+(http[^']+)'\)", cnt
+            ).group(1)
+            self.logger.info("Podty's rss url: %s" % self.requri)
+        except Exception as err:
+            self.logger.error(err)
+
+    def get(self):
+        return super().get()
+
+
 class cURL:
     def __init__(self, req, logger):
         self.logger = logger
         self.req = req
-        if "podbbang" in req.args.get("uri"):
+        requri = req.args.get("uri")
+        if "podbbang" in requri:
             self.parser = cURLParser_Podbbang(req, logger)
+        elif "podty" in requri:
+            self.parser = cURLParser_Podty(req, logger)
         else:
             self.parser = cURLParser_iTunes(req, logger)
 
